@@ -1,62 +1,133 @@
 #include <iostream>
+#include <fstream>
+#include <iomanip>
 #include <random>
 #include <vector>
 #include <cmath>
+#include <string>
+#include <algorithm>
+#include <numeric>
+
+#ifdef _WIN32
+#include <direct.h>
+#define CREAR_DIRECTORIO(x) _mkdir(x)
+#define DIRECTORIO_ACTUAL _getcwd
+#else
+#include <unistd.h>
+#include <sys/stat.h>
+#define CREAR_DIRECTORIO(x) mkdir(x, 0755)
+#define DIRECTORIO_ACTUAL getcwd
+#endif
 
 using namespace std;
 
-vector<double> GenerarCoords(int dimensiones){
-	vector<double> Puntos;
-	std::random_device rd;  
-	std::mt19937 gen(rd());
-	std::uniform_real_distribution<> dis(0.0, 1.0);
-	for (int n = 0; n < dimensiones; ++n){
-		Puntos.push_back(dis(gen));
-//		std::cout << Puntos[n] << ' '; //ver puntos
-	}
-	return Puntos;
-}
-void llenarPuntos(vector<vector<double>>& p, int dimensiones){
-	for(int i=0;i<100;i++){
-		vector<double> Punto = GenerarCoords(dimensiones);
-		p.push_back(Punto);
-	}
-}
-double distancia(vector<double>& a, vector<double>& b){
-	if(a.size() != b.size())return -1;
-	double sum = 0;
-	for(int i=0;i<a.size();i++){
-		sum+=pow(b[i]-a[i],2);
-	}
-	return sqrt(sum);
-}
-void distanciasEntrePuntos(vector<vector<double>>& puntos, vector<double>& distancias){
-	for(int i = 0;i<puntos.size();i++){
-		for(int j = 0;j<puntos.size();j++){
-			double t = distancia(puntos[i],puntos[j]);
-			if(t==0) continue;
-			distancias.push_back(t);
-			cout << t << endl;
-		}
-	}
-}
-int main(int argc, char *argv[]) {
-	vector<vector<double>> Puntos10;
-	llenarPuntos(Puntos10, 10);
-//	for(int i = 0;i<Puntos10.size();i++){
-//		cout << "-----------------" << endl;
-//		for(int j = 0;j<Puntos10[i].size();j++){
-//			cout << Puntos10[i][j];
-//		}
-//	}
-//	cout << Puntos10.size()<< endl;
-	vector<double> distancias;
-	distanciasEntrePuntos(Puntos10, distancias);
-	
-	cout << distancias.size() << endl;
-	return 0;
+const int NUM_PUNTOS = 100;
+const vector<int> DIMENSIONES = {10, 50, 100, 500, 1000, 2000, 5000};
+
+string directorioActual() {
+    char buffer[4096];
+    if (DIRECTORIO_ACTUAL(buffer, sizeof(buffer)) != NULL) return string(buffer);
+    return string(".");
 }
 
+mt19937 gen(random_device{}());
+uniform_real_distribution<double> dis(0.0, 1.0);
 
-//verificar la cantidad de bins para hacer el histograma
-//pq deben ser 4950 distancias?
+vector<double> generarPunto(int dimensiones){
+    vector<double> punto(dimensiones);
+    for (int i = 0; i < dimensiones; ++i) {
+        punto[i] = dis(gen);
+    }
+    return punto;
+}
+
+vector<vector<double>> generarConjunto(int n, int dimensiones){
+    vector<vector<double>> puntos;
+    puntos.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        puntos.push_back(generarPunto(dimensiones));
+    }
+    return puntos;
+}
+
+double distancia(vector<double>& a,vector<double>& b){
+    double suma = 0.0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        double delta = b[i] - a[i];
+        suma += delta * delta;
+    }
+    return sqrt(suma);
+}
+
+vector<double> distanciasEntrePares(vector<vector<double>>& puntos){
+    size_t n = puntos.size();
+    vector<double> distancias;
+    distancias.reserve(n * (n - 1) / 2);
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = i + 1; j < n; ++j) {
+            distancias.push_back(distancia(puntos[i], puntos[j]));
+        }
+    }
+    return distancias;
+}
+
+void guardarCSV(vector<double>& distancias, const string& archivo){
+    ofstream out(archivo);
+    if (!out) {
+        cerr << "Error: no se pudo escribir " << archivo << endl;
+        return;
+    }
+    out << "distancia\n";
+    out << fixed << setprecision(6);
+    for (double d : distancias) {
+        out << d << "\n";
+    }
+}
+
+void imprimirResumen(int d,vector<double>& dist) {
+    double suma  = accumulate(dist.begin(), dist.end(), 0.0);
+    double media = suma / dist.size();
+
+    double dmin = *min_element(dist.begin(), dist.end());
+    double dmax = *max_element(dist.begin(), dist.end());
+
+    cout << fixed << setprecision(4);
+    cout << setw(6)  << d
+         << setw(10) << dist.size()
+         << setw(10) << dmin
+         << setw(10) << dmax
+         << setw(10) << media
+         << setw(10) << (dmax - dmin)
+         << setw(12) << (dmax - dmin) / dmin
+         << endl;
+}
+
+int main(int argc, char *argv[]){
+    CREAR_DIRECTORIO("data");
+    CREAR_DIRECTORIO("figuras");
+    cout << "Directorio de trabajo: " << directorioActual() << endl;
+    cout << "Los CSV se guardan en: " << directorioActual()
+         << "/data" << endl << endl;
+
+    cout << setw(6)  << "dim"
+         << setw(10) << "pares"
+         << setw(10) << "min" 
+         << setw(10) << "max"
+         << setw(10) << "media" 
+         << setw(10) << "ancho"
+         << setw(12) << "contraste"
+         << endl; 
+    cout << string(68, '-') << endl;
+
+    for (int d : DIMENSIONES) {
+        vector<vector<double>> puntos = generarConjunto(NUM_PUNTOS, d);
+        vector<double> dist = distanciasEntrePares(puntos);
+        guardarCSV(dist, "data/distancias_d" + to_string(d) + ".csv");
+        imprimirResumen(d, dist);
+    }
+
+    cout << endl << "Archivos generados en "
+         << directorioActual() << "/data" << endl;
+
+    return 0;
+}
